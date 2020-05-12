@@ -9,6 +9,8 @@ alias kw='kops_wrapper kops.out.env'
 alias jqdk="jq -er '.data | keys'"
 alias jqd="jq  -er '.data[\$key] | @base64d' --arg key"
 alias yml='yaml.py | nvim - -c "set ft=yaml"'
+cd_() { command pushd "${1:-$HOME}" &>/dev/null; };
+alias cd=cd_
 
 gittop() {
   local CDPATH

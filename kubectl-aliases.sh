@@ -56,7 +56,7 @@ alias ksd='kubectl scale deployment --replicas'
 kuse() {
   ## set kubeconfig
   local kubeconfig="${1?missing kube config file}"
-  export KUBECONFIG="$HOME/.kube/${kubeconfig}.kubeconfig"
+  export KUBECONFIG="${HOME?}/.kube/${kubeconfig}${kubeconfig+/}config"
   echo "Switched to kubeconfig \"${kubeconfig}\"." &>/dev/stderr
   ## set context
   local ctx="${2:-}"  # kube context is optional
