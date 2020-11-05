@@ -1,5 +1,13 @@
-alias randomid='printf "%s-%s" "$(whoami | tr -cd "[:alnum:]")" "$(date +%Y%m%d%H%M%S)"'
 alias k='kubectl'
+K()        { local cmd; cmd=${1?cmd missing}; shift; kubectl $cmd --all-namespaces "$@"; }
+randomid() { printf '%s-%s' "$(whoami | tr -cd '[:alnum:]')" "$(date +%Y%m%d%H%M%S)"; }
+
+alias kb='kustomize build .'
+alias kr='kubectl run $(randomid) --dry-run=client -o yaml'
+alias kc='kubectl create --dry-run=client -o yaml'
+
+alias ka='kubectl apply -f'
+alias kab='kustomize build . | kubectl apply -f -'
 
 alias Kg='kubectl get --all-namespaces'
 alias Kgp='kubectl get pod --all-namespaces'
@@ -9,6 +17,7 @@ alias Kgd='kubectl get deployment --all-namespaces'
 alias Kgcm='kubectl get configmap --all-namespaces'
 alias Kgcs='kubectl get secret --all-namespaces'
 alias Kgi='kubectl get ingress --all-namespaces'
+alias Kgj='kubectl get job --all-namespaces'
 
 alias kg='kubectl get'
 alias kgp='kubectl get pod'
@@ -18,11 +27,16 @@ alias kgd='kubectl get deployment'
 alias kgcm='kubectl get configmap'
 alias kgcs='kubectl get secret'
 alias kgi='kubectl get ingress'
+alias kgj='kubectl get job'
+alias kgns='kubectl get namespace'
+alias kgno='kubectl get nodes'
 
 alias kd='kubectl describe'
 alias kdd='kubectl describe deployment'
 alias kdp='kubectl describe pod'
 alias kds='kubectl describe service'
+
+alias kwd='kubectl wait deploy --for condition=available'
 
 # The following are meant to be used with proc substitution. e.g.:
 # $ less -F -f <(klf intg $(kgp intg -lname=intg-kong-kong -o name | head -n -1) )
@@ -31,33 +45,49 @@ alias klf='kubectl logs -f'
 alias klp='kubectl logs -p'
 
 alias kx='kubectl exec -it'
-alias kr='kubectl run $(randomid) -it --rm --restart=Never --generator=run-pod/v1 --attach=true'
-alias krun='kubectl run $(randomid) -it --rm --restart=Never --generator=run-pod/v1 --attach=true --labels user=$(whoami) --image=alpine:latest'
+alias krun='kubectl run $(randomid) -it --rm --restart=Never --attach=true --labels user=$(whoami) --image=alpine:latest'
 
 alias ke='kubectl edit'
 alias ked='kubectl edit deployment'
 alias kecm='kubectl edit configmap'
 
-# v work around for kuebctl rollout restart
+# v work around for kubectl rollout restart
 alias kr_='kubectl patch -p '"'$(jq -nc '.spec.updateStrategy.type="RollingUpdate" | .spec.updateStrategy.rollingUpdate.maxUnavailable=1 | .spec.minReadySeconds=40')'"
 alias krr="kubectl patch -p \"\$(jq -n --arg date \"\$(date +%s)\" '.spec.template.metadata.annotations.lastRestart = \$date' )\""
 alias krs='kubectl rollout status'
+alias ksd='kubectl scale deployment --replicas'
 
-alias krmrfp='kubectl delete pod'
-alias krmrfns='kubectl delete namespace'
-
-alias kgns='kubectl get namespace'
-alias kgno='kubectl get nodes'
+alias krmrfp='kubectl delete pod --force --grace-period=0'
+krmrfns() {
+  for i in $(
+    kubectl delete ns "$@" --timeout=0 --wait=false -o name |
+      awk -F/ '{print $2}' ||
+      true
+  ); do
+    if [[ -z "${i:-}" ]]; then
+      continue
+    fi
+    kubectl delete -n "$i" pod --all --force --grace-period=0 --timeout=0 &
+  done
+  kubectl wait ns "$@" --for=delete || :
+}
 
 alias ktop='kubectl top pods --containers=true --heapster-namespace=kube-system'
 alias kcp='kubectl cp'
-alias ksd='kubectl scale deployment --replicas'
 
 kuse() {
-  ## set kubeconfig
-  local kubeconfig="${1?missing kube config file}"
-  export KUBECONFIG="${HOME?}/.kube/${kubeconfig}${kubeconfig+/}config"
-  echo "Switched to kubeconfig \"${kubeconfig}\"." &>/dev/stderr
+  local kubeconfig
+  kubeconfig="${1?missing kube config file}"
+
+  if test "$kubeconfig" = '-'; then
+    : "${KUBECONFIG:?kubeconfig not set}"
+  elif test -s "$kubeconfig"; then
+    export KUBECONFIG="$kubeconfig"
+  else
+    export KUBECONFIG="${HOME?}/.kube/${kubeconfig}${kubeconfig:+/}config"
+  fi
+
+  printf "Switched to kubeconfig %q\n" "$KUBECONFIG" &>/dev/stderr
   ## set context
   local ctx="${2:-}"  # kube context is optional
   if test -z "${ctx}"; then return; fi
@@ -68,6 +98,17 @@ kuse() {
     kubectl config set-context "${ctx}" --cluster="${cluster:?}" --user="${user:?}" --namespace="${namespace:?}" &>/dev/stderr
   fi
   kubectl config use-context "${ctx}" &>/dev/stderr
+}
+
+kunuse() {
+  if test "$#" = 0; then
+    unset KUBECONFIG
+    export KUBECONFIG
+    return
+  else
+    KUBECONFIG="${KUBECONFIG:-${HOME:?}/.kube/config}"
+    yq r -j "$KUBECONFIG" | jq 'del(.contexts[] | select(.name == $name)) | .["current-context"] = first(.contexts[].name)' --arg name "${1?missing contextname}" | yq r - | sponge "$KUBECONFIG"
+  fi
 }
 
 kpf() {
@@ -106,12 +147,40 @@ kpf() {
 
 
 # Check files in cm and secrets
-kls() { kubectl get "$@" -o json | jq -re '.data | keys' ; }
-kcat() {
-  /bin/sh -c "$(cat <<'EOF'
-  kubectl get "${@:0:$#}" -o json | jq -re '.kind as $kind | .data[$key] | if $kind == "Secret" then @base64d else . end' --arg key "${!#}"
-EOF
-  )" _ "$@"
+kls() {
+  case "${1?usage kls secret|cm resources flags}" in
+    secret*)
+      ;;
+    cm*)
+      ;;
+    configmap*)
+      ;;
+    *)
+      echo 'usage kls secret|cm resources flags' > /dev/stderr
+      return 1
+      ;;
+  esac
+  kubectl get "$@" -o json | jq -re '.data | keys[]' | xargs printf '%q\n';
+}
+kcat () {
+  if test "$#" -lt 3; then
+    echo 'usage: kcat cm|secret resource datafile $KUBECTL_OPTS' > /dev/stderr;
+    echo 'try: kls' $@ > /dev/stderr;
+    return 1
+  fi
+
+  local JQ_SCRIPT
+  local kind
+  local resource
+  local file
+
+  JQ_SCRIPT='.kind as $kind | .data[$key] | if $kind == "Secret" then @base64d else . end'
+  kind=${1:?}
+  resource=${2:?}
+  file=${3:?}
+  shift; shift; shift;
+
+  kubectl get "$kind" "$resource" "$@" -o json | jq -re "${JQ_SCRIPT:?}" --arg key "${file}"
 }
 
 # Only for kubectl under idk what version
