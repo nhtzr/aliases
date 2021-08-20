@@ -7,7 +7,7 @@ alias kr='kubectl run $(randomid) --dry-run=client -o yaml'
 alias kc='kubectl create --dry-run=client -o yaml'
 
 alias ka='kubectl apply -f'
-alias kab='kustomize build . | kubectl apply -f -'
+alias kba='kustomize build . | kubectl apply -f -'
 
 alias Kg='kubectl get --all-namespaces'
 alias Kgp='kubectl get pod --all-namespaces'
@@ -49,6 +49,7 @@ alias krun='kubectl run $(randomid) -it --rm --restart=Never --attach=true --lab
 
 alias ke='kubectl edit'
 alias ked='kubectl edit deployment'
+alias kes='kubectl edit service'
 alias kecm='kubectl edit configmap'
 
 # v work around for kubectl rollout restart
@@ -181,6 +182,17 @@ kcat () {
   shift; shift; shift;
 
   kubectl get "$kind" "$resource" "$@" -o json | jq -re "${JQ_SCRIPT:?}" --arg key "${file}"
+}
+
+kcps() {
+  local name
+  name=${1:?usage kcps secret-name}
+  shift
+  mkdir $name
+  for i in $(kls secret "$name" "$@"); do
+    : ${i:?empty secret filename}
+    kcat secret "$name" "$i" "$@" > "$name/$i"
+  done
 }
 
 # Only for kubectl under idk what version
