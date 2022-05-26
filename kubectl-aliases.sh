@@ -175,13 +175,13 @@ kcat () {
   local resource
   local file
 
-  JQ_SCRIPT='.kind as $kind | .data[$key] | if $kind == "Secret" then @base64d else . end'
+  JQ_SCRIPT='.kind as $kind | .data[$key] | (values // error("\($key) was not found in \($kind) \($resource)") ) | if $kind == "Secret" then @base64d else . end'
   kind=${1:?}
   resource=${2:?}
   file=${3:?}
   shift; shift; shift;
 
-  kubectl get "$kind" "$resource" "$@" -o json | jq -re "${JQ_SCRIPT:?}" --arg key "${file}"
+  kubectl get "$kind" "$resource" "$@" -o json | jq -re "${JQ_SCRIPT:?}" --arg key "$file" --arg resource "$resource" --arg kind "$kind"
 }
 
 kcps() {
