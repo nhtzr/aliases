@@ -1,3 +1,6 @@
+# mkdir -p ~/.aws/cli
+# cp ~/.config/aliases/aws-cli-alias ~/.aws/cli/alias
+
 [toplevel]
 
 ec2-bydns =
