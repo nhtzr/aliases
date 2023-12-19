@@ -7,6 +7,7 @@ alias kr='kubectl run $(randomid) --dry-run=client -o yaml'
 alias kc='kubectl create --dry-run=client -o yaml'
 
 alias ka='kubectl apply -f'
+alias kssa='kubectl apply --server-side -f'
 alias kba='kustomize build . | kubectl apply -f -'
 
 alias Kg='kubectl get --all-namespaces'

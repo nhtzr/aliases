@@ -34,3 +34,4 @@ trim() {
   printf '%s\n' "${_}"
 }
 
+use() { ause "$@"; kuse "$@"; }
